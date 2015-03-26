@@ -7,25 +7,24 @@ import pyspark.sql
 
 def main():
     if len(sys.argv) < 3:
-        print >>sys.stderr, "usage: sparkstagram.py <parquet-file> <csv-output-file>"
+        print >>sys.stderr, "usage: sparkstagram.py <csv-output-file> <parquet-file> [<parquet-file> ...]"
         return 1
 
-    parquet_file = sys.argv[1]
-    output = sys.argv[2]
+    output = sys.argv[1]
+    parquet_files = sys.argv[2:]
 
     sc = pyspark.SparkContext()
     sqlContext = pyspark.sql.SQLContext(sc)
 
-    df = sqlContext.parquetFile(parquet_file)
+    df = sqlContext.parquetFile(parquet_files[0])
     df.registerTempTable("instagram")
 
-    records = sqlContext.sql("select * from instagram")
+    records = sqlContext.sql("select * from instagram limit 1")
+    csv.writer(open(output, "w+b")).writerow(records.columns)
 
     def write_row(recs, filename):
         count = [0]
         fields = recs.columns
-
-        csv.writer(open(filename, "a+b")).writerow(fields)
 
         def go(row):
             row = row.asDict()
@@ -38,11 +37,22 @@ def main():
 
         return go
 
-    # Truncate the file.
-    with open(output, "wb"):
-        pass
+    query = """\
+select * from instagram
+where longitude between -74.0852737 and -73.7468033 and
+      latitude between 40.6166715 and 40.8799574 and
+      posted_date between '2013-01-01T00:00:00' and '2013-12-31T23:59:59'
+"""
 
-    records.foreach(write_row(records, output))
+    for p in parquet_files:
+        print >>sys.stderr, "processing %s" % (p)
+
+        df = sqlContext.parquetFile(p)
+        df.registerTempTable("instagram")
+
+        records = sqlContext.sql(query)
+
+        records.foreach(write_row(records, output))
 
     return 0
 
